@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoChest Battle · 自走棋竞技场</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #21262d;
+    --border: #30363d;
+    --gold: #ffd700;
+    --blue: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --text: #e6edf3;
+    --text2: #8b949e;
+    --hp-color: #f85149;
+    --atk-color: #d29922;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .hidden { display: none !important; }
+
+  /* ---------- Auth ---------- */
+  #auth-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; flex-direction: column; gap: 20px; }
+  .auth-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 32px; width: 360px; }
+  .auth-box h1 { text-align: center; font-size: 20px; margin-bottom: 8px; color: var(--gold); }
+  .auth-box .subtitle { text-align: center; color: var(--text2); font-size: 13px; margin-bottom: 24px; }
+  .auth-box input { width: 100%; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 14px; margin-bottom: 12px; outline: none; }
+  .auth-box input:focus { border-color: var(--blue); }
+  .auth-box button { width: 100%; padding: 10px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .btn-primary { background: #238636; color: white; }
+  .btn-primary:hover { background: #2ea043; }
+  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border) !important; }
+  .auth-box .switch-link { text-align: center; margin-top: 12px; color: var(--text2); font-size: 13px; cursor: pointer; }
+  .auth-box .switch-link:hover { color: var(--blue); }
+  .auth-error { color: var(--red); font-size: 13px; margin-bottom: 8px; }
+
+  /* ---------- Lobby ---------- */
+  #lobby-screen { display: flex; max-width: 1200px; margin: 0 auto; padding: 16px; gap: 16px; min-height: 100vh; }
+  .lobby-left { flex: 1; }
+  .lobby-right { width: 360px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 16px; margin-bottom: 12px; color: var(--text); }
+  .lobby-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .lobby-header h1 { font-size: 18px; color: var(--gold); }
+  .user-info { color: var(--text2); font-size: 13px; }
+
+  .queue-box { text-align: center; padding: 24px; }
+  .queue-box .queue-status { font-size: 24px; color: var(--gold); margin: 12px 0; }
+  .queue-box .queue-desc { color: var(--text2); font-size: 13px; margin-bottom: 16px; }
+
+  /* ---------- Leaderboard ---------- */
+  .lb-item { display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .lb-item:last-child { border-bottom: none; }
+  .lb-rank { width: 24px; font-weight: 700; color: var(--text2); }
+  .lb-rank.gold { color: var(--gold); }
+  .lb-rank.silver { color: #c0c0c0; }
+  .lb-rank.bronze { color: #cd7f32; }
+  .lb-name { flex: 1; }
+  .lb-rating { color: var(--gold); font-weight: 600; }
+  .lb-stat { color: var(--text2); font-size: 12px; margin-left: 8px; }
+
+  /* ---------- Game UI ---------- */
+  #game-screen { display: flex; max-width: 1200px; margin: 0 auto; padding: 8px; gap: 8px; min-height: 100vh; }
+  .game-main { flex: 1; }
+  .game-sidebar { width: 300px; }
+
+  .game-header { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+  .game-round { font-size: 14px; font-weight: 600; }
+  .game-round .round-num { color: var(--gold); }
+
+  .players-bar { display: flex; gap: 6px; margin-bottom: 8px; }
+  .player-tag { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 12px; display: flex; align-items: center; gap: 4px; }
+  .player-tag .hp { color: var(--hp-color); }
+  .player-tag.eliminated { opacity: 0.4; text-decoration: line-through; }
+  .player-tag.me { border-color: var(--blue); }
+
+  .board-area { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+  .board-area h3 { font-size: 12px; color: var(--text2); margin-bottom: 6px; }
+
+  .board-grid { display: flex; gap: 6px; flex-wrap: wrap; min-height: 60px; }
+  .chess-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; cursor: pointer; transition: all 0.2s; min-width: 70px; text-align: center; }
+  .chess-card:hover { border-color: var(--blue); transform: translateY(-2px); }
+  .chess-card .c-name { font-size: 12px; font-weight: 600; }
+  .chess-card .c-stars { color: var(--gold); font-size: 10px; }
+  .chess-card .c-stats { font-size: 10px; color: var(--text2); }
+  .chess-card .c-hp { color: var(--hp-color); }
+  .chess-card .c-atk { color: var(--atk-color); }
+  .chess-card .c-cost { position: absolute; top: 2px; right: 4px; color: var(--gold); font-size: 10px; }
+  .chess-card { position: relative; }
+  .chess-card.eliminated-unit { opacity: 0.3; text-decoration: line-through; }
+
+  .shop-area { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+  .shop-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .shop-header .gold { color: var(--gold); font-weight: 600; }
+  .shop-grid { display: flex; gap: 6px; }
+  .shop-item { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px; cursor: pointer; flex: 1; text-align: center; transition: all 0.2s; }
+  .shop-item:hover { border-color: var(--gold); transform: translateY(-2px); }
+  .shop-item .c-name { font-size: 13px; font-weight: 600; }
+  .shop-item .c-cost { color: var(--gold); font-size: 12px; }
+  .shop-item .c-race { color: var(--purple); font-size: 11px; }
+  .shop-item .c-stats { font-size: 11px; color: var(--text2); }
+
+  .action-bar { display: flex; gap: 8px; }
+  .action-bar button { flex: 1; padding: 8px; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .btn-roll { background: #1f6feb; color: white; }
+  .btn-roll:hover { background: #388bfd; }
+  .btn-fight { background: #da3633; color: white; }
+  .btn-fight:hover { background: #f85149; }
+  .btn-fight:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ---------- Battle Log ---------- */
+  .battle-log { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; max-height: 300px; overflow-y: auto; }
+  .battle-log .log-entry { padding: 3px 0; font-size: 12px; border-bottom: 1px solid var(--border); }
+  .battle-log .log-entry:last-child { border-bottom: none; }
+  .battle-log .round-title { color: var(--gold); font-weight: 600; padding: 4px 0; }
+
+  /* ---------- Match End ---------- */
+  .match-end-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+  .match-end-box { background: var(--surface); border: 1px solid var(--gold); border-radius: 16px; padding: 32px; max-width: 400px; width: 90%; text-align: center; }
+  .match-end-box h2 { color: var(--gold); margin-bottom: 16px; }
+  .match-end-box .final-rank { font-size: 48px; font-weight: 700; color: var(--gold); }
+  .match-end-box .detail { color: var(--text2); font-size: 13px; margin: 8px 0; }
+  .match-end-box button { margin-top: 16px; }
+
+  /* ---------- Animations ---------- */
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+  .fighting .board-area { animation: pulse 0.5s ease-in-out 3; }
+
+  /* ---------- Messages / Toasts ---------- */
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 20px; font-size: 13px; z-index: 999; animation: fadeIn 0.3s; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 768px) {
+    #game-screen { flex-direction: column; }
+    .game-sidebar { width: 100%; }
+    #lobby-screen { flex-direction: column; }
+    .lobby-right { width: 100%; }
+    .shop-grid { flex-wrap: wrap; }
+    .shop-item { flex: 1 1 30%; min-width: 80px; }
+  }
+</style>
+</head>
+<body>
+<!-- Auth Screen -->
+<div id="auth-screen">
+  <div class="auth-box">
+    <h1>⚔️ AutoChest Battle</h1>
+    <p class="subtitle">自走棋竞技场 · 与玩家实时对战</p>
+    <div id="auth-error" class="auth-error hidden"></div>
+    <div id="login-form">
+      <input id="login-username" type="text" placeholder="用户名" autocomplete="username">
+      <input id="login-password" type="password" placeholder="密码" autocomplete="current-password">
+      <button class="btn-primary" onclick="login()">登录</button>
+      <div class="switch-link" onclick="showRegister()">没有账号？注册</div>
+    </div>
+    <div id="register-form" class="hidden">
+      <input id="reg-username" type="text" placeholder="用户名" autocomplete="off">
+      <input id="reg-password" type="password" placeholder="密码 (至少4位)" autocomplete="new-password">
+      <input id="reg-nickname" type="text" placeholder="昵称 (可选)" autocomplete="off">
+      <button class="btn-primary" onclick="register()">注册</button>
+      <div class="switch-link" onclick="showLogin()">已有账号？登录</div>
+    </div>
+  </div>
+</div>
+
+<!-- Lobby Screen -->
+<div id="lobby-screen" class="hidden">
+  <div class="lobby-left">
+    <div class="lobby-header">
+      <h1>⚔️ AutoChest Battle</h1>
+      <div class="user-info">👤 <span id="lobby-username"></span> | 积分: <span id="lobby-rating">-</span></div>
+    </div>
+    <div class="card queue-box">
+      <h2>🎮 匹配对战</h2>
+      <div id="queue-status" class="queue-status">等待加入...</div>
+      <p class="queue-desc">凑齐 4 名玩家自动开始 · 8 回合自走棋对战</p>
+      <button id="queue-btn" class="btn-primary" onclick="toggleQueue()">加入队列</button>
+    </div>
+    <div class="card">
+      <h2>📖 玩法说明</h2>
+      <p style="color:var(--text2);font-size:13px;line-height:1.6;">
+        ① 每回合获得金币，从商店购买棋子<br>
+        ② 将棋子布置到棋盘上（最多6个）<br>
+        ③ 3个相同棋子自动合成2星（大幅强化）<br>
+        ④ 点击"准备战斗"自动对战<br>
+        ⑤ 生存到最后即为冠军！🏆
+      </p>
+    </div>
+  </div>
+  <div class="lobby-right">
+    <div class="card">
+      <h2>🏆 积分排行榜</h2>
+      <div id="leaderboard"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Game Screen -->
+<div id="game-screen" class="hidden">
+  <div class="game-main">
+    <div class="game-header">
+      <div class="game-round">回合 <span id="g-round" class="round-num">1</span>/8</div>
+      <div><span id="g-my-hp" style="color:var(--hp-color)">❤️ 20</span></div>
+    </div>
+    <div id="g-players-bar" class="players-bar"></div>
+    <div class="board-area">
+      <h3>🛡️ 棋盘 (点击移除)</h3>
+      <div id="g-board" class="board-grid"></div>
+    </div>
+    <div class="board-area">
+      <h3>📦 备用区 (点击上场)</h3>
+      <div id="g-bench" class="board-grid"></div>
+    </div>
+    <div class="shop-area" id="g-shop-area">
+      <div class="shop-header">
+        <span>🏪 商店</span>
+        <span class="gold">💰 <span id="g-gold">3</span></span>
+      </div>
+      <div id="g-shop" class="shop-grid"></div>
+    </div>
+    <div class="action-bar">
+      <button class="btn-roll" onclick="rollShop()">🔄 刷新 (💰1)</button>
+      <button class="btn-fight" id="btn-fight" onclick="readyFight()">⚔️ 准备战斗</button>
+    </div>
+  </div>
+  <div class="game-sidebar">
+    <div class="card">
+      <h2>📜 战报</h2>
+      <div id="g-battle-log" class="battle-log"><div class="log-entry" style="color:var(--text2)">等待战斗...</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Match End Overlay -->
+<div id="match-end" class="match-end-overlay hidden">
+  <div class="match-end-box">
+    <h2>🏆 比赛结束</h2>
+    <div id="final-rank" class="final-rank">#1</div>
+    <p id="final-detail" class="detail"></p>
+    <div id="final-standings" style="margin:12px 0;text-align:left;"></div>
+    <button class="btn-primary" onclick="backToLobby()">返回大厅</button>
+  </div>
+</div>
+
+<script>
+// ====== STATE ======
+let token = null;
+let user = null;
+let ws = null;
+let inQueue = false;
+let inGame = false;
+let gameState = null; // { roomId, players, round, myPlayer, shop, board, bench }
+let battleLogLines = [];
+let isFighting = false;
+
+// ====== AUTH ======
+function showRegister() { document.getElementById('login-form').classList.add('hidden'); document.getElementById('register-form').classList.remove('hidden'); document.getElementById('auth-error').classList.add('hidden'); }
+function showLogin() { document.getElementById('register-form').classList.add('hidden'); document.getElementById('login-form').classList.remove('hidden'); document.getElementById('auth-error').classList.add('hidden'); }
+
+async function login() {
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  if (!username || !password) return showAuthError('请填写用户名和密码');
+  try {
+    const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
+    const data = await res.json();
+    if (data.error) return showAuthError(data.error);
+    token = data.token; user = data.user;
+    connectWS();
+    showLobby();
+  } catch(e) { showAuthError('网络错误'); }
+}
+
+async function register() {
+  const username = document.getElementById('reg-username').value.trim();
+  const password = document.getElementById('reg-password').value;
+  const nickname = document.getElementById('reg-nickname').value.trim();
+  if (!username || !password) return showAuthError('请填写用户名和密码');
+  try {
+    const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password, nickname }) });
+    const data = await res.json();
+    if (data.error) return showAuthError(data.error);
+    token = data.token; user = data.user;
+    connectWS();
+    showLobby();
+  } catch(e) { showAuthError('网络错误'); }
+}
+
+function showAuthError(msg) { const el = document.getElementById('auth-error'); el.textContent = msg; el.classList.remove('hidden'); }
+
+// ====== WS ======
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}`);
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: 'auth', token }));
+  };
+
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    handleWSMessage(msg);
+  };
+
+  ws.onclose = () => {
+    if (inGame) { alert('连接断开，请刷新页面'); }
+    setTimeout(() => { if (token) connectWS(); }, 3000);
+  };
+}
+
+function handleWSMessage(msg) {
+  switch (msg.type) {
+    case 'auth_ok':
+      user.id = msg.userId;
+      break;
+    case 'queue_status':
+      document.getElementById('queue-status').textContent = `⏳ 排队中... 当前 ${msg.position} 人`;
+      break;
+    case 'queue_update':
+      document.getElementById('queue-status').textContent = `⏳ 排队中... 当前 ${msg.count} 人`;
+      break;
+    case 'queue_left':
+      document.getElementById('queue-status').textContent = '已退出队列';
+      document.getElementById('queue-btn').textContent = '加入队列';
+      inQueue = false;
+      break;
+    case 'match_start':
+      startGame(msg);
+      break;
+    case 'new_round':
+      gameState.round = msg.round;
+      gameState.myPlayer.gold = msg.gold;
+      gameState.myPlayer.hp = msg.hp;
+      isFighting = false;
+      document.getElementById('g-round').textContent = msg.round;
+      document.getElementById('g-gold').textContent = msg.gold;
+      document.getElementById('g-my-hp').textContent = `❤️ ${msg.hp}`;
+      document.getElementById('btn-fight').disabled = false;
+      document.getElementById('btn-fight').textContent = '⚔️ 准备战斗';
+      updateBoardUI();
+      updateShopUI([]);
+      break;
+    case 'shop_rolled':
+      gameState.myPlayer.currentShop = msg.shop;
+      gameState.myPlayer.gold = msg.gold;
+      document.getElementById('g-gold').textContent = msg.gold;
+      updateShopUI(msg.shop);
+      break;
+    case 'bought':
+      gameState.myPlayer.bench = msg.bench;
+      gameState.myPlayer.gold = msg.gold;
+      document.getElementById('g-gold').textContent = msg.gold;
+      updateBoardUI();
+      break;
+    case 'board_updated':
+      gameState.myPlayer.board = msg.board;
+      gameState.myPlayer.bench = msg.bench;
+      updateBoardUI();
+      break;
+    case 'fight_results':
+      isFighting = true;
+      document.getElementById('btn-fight').disabled = true;
+      document.getElementById('btn-fight').textContent = '⏳ 战斗中...';
+      showFightResults(msg);
+      break;
+    case 'standings':
+      gameState.standings = msg.standings;
+      updatePlayersBar();
+      break;
+    case 'match_end':
+      showMatchEnd(msg);
+      break;
+    case 'error':
+      toast(msg.message);
+      break;
+  }
+}
+
+// ====== LOBBY ======
+async function showLobby() {
+  document.getElementById('auth-screen').classList.add('hidden');
+  document.getElementById('game-screen').classList.add('hidden');
+  document.getElementById('match-end').classList.add('hidden');
+  document.getElementById('lobby-screen').classList.remove('hidden');
+  document.getElementById('lobby-username').textContent = user.nickname || user.username;
+  inGame = false;
+  inQueue = false;
+  document.getElementById('queue-btn').textContent = '加入队列';
+  document.getElementById('queue-status').textContent = '等待加入...';
+  loadLeaderboard();
+  loadMyStats();
+}
+
+async function loadLeaderboard() {
+  try {
+    const res = await fetch('/api/leaderboard');
+    const data = await res.json();
+    const el = document.getElementById('leaderboard');
+    el.innerHTML = data.map((p, i) => {
+      const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+      const isMe = p.username === user.username;
+      return `<div class="lb-item" style="${isMe ? 'background:var(--surface2);border-radius:4px;' : ''}">
+        <span class="lb-rank ${rankClass}">#${i+1}</span>
+        <span class="lb-name">${p.nickname || p.username}</span>
+        <span class="lb-rating">${p.rating}</span>
+        <span class="lb-stat">${p.wins}胜</span>
+      </div>`;
+    }).join('');
+  } catch {}
+}
+
+async function loadMyStats() {
+  if (!user) return;
+  try {
+    const res = await fetch(`/api/stats/${user.id}`);
+    const data = await res.json();
+    if (data) document.getElementById('lobby-rating').textContent = data.rating;
+  } catch {}
+}
+
+function toggleQueue() {
+  if (inQueue) {
+    ws.send(JSON.stringify({ type: 'leave_queue' }));
+    inQueue = false;
+    document.getElementById('queue-btn').textContent = '加入队列';
+  } else {
+    ws.send(JSON.stringify({ type: 'join_queue' }));
+    inQueue = true;
+    document.getElementById('queue-btn').textContent = '退出队列';
+    document.getElementById('queue-status').textContent = '⏳ 加入队列...';
+  }
+}
+
+// ====== GAME ======
+function startGame(msg) {
+  document.getElementById('lobby-screen').classList.add('hidden');
+  document.getElementById('game-screen').classList.remove('hidden');
+  document.getElementById('match-end').classList.add('hidden');
+  inGame = true;
+  inQueue = false;
+  isFighting = false;
+
+  gameState = {
+    roomId: msg.roomId,
+    players: msg.players.map(p => ({ ...p, eliminated: false })),
+    round: msg.round,
+    myPlayer: { userId: user.id, gold: 3, hp: 20, bench: [], board: [], currentShop: [] },
+    board: [],
+    bench: [],
+  };
+
+  battleLogLines = [];
+  document.getElementById('g-round').textContent = msg.round;
+  document.getElementById('g-gold').textContent = 3;
+  document.getElementById('g-my-hp').textContent = '❤️ 20';
+  document.getElementById('btn-fight').disabled = false;
+  document.getElementById('btn-fight').textContent = '⚔️ 准备战斗';
+  updatePlayersBar();
+  updateBoardUI();
+  updateShopUI([]);
+  document.getElementById('g-battle-log').innerHTML = '<div class="log-entry" style="color:var(--text2)">游戏开始！</div>';
+}
+
+function updatePlayersBar() {
+  const bar = document.getElementById('g-players-bar');
+  if (!gameState) return;
+  const allPlayers = gameState.standings || gameState.players;
+  bar.innerHTML = allPlayers.map(p => {
+    const isMe = p.userId === user.id;
+    const elim = p.eliminated || (gameState.myPlayer && p.hp <= 0);
+    return `<div class="player-tag ${elim ? 'eliminated' : ''} ${isMe ? 'me' : ''}">
+      ${isMe ? '⭐' : '👤'} ${p.username} <span class="hp">❤️${p.hp}</span>
+    </div>`;
+  }).join('');
+}
+
+function updateBoardUI() {
+  if (!gameState) return;
+  const boardEl = document.getElementById('g-board');
+  const benchEl = document.getElementById('g-bench');
+
+  boardEl.innerHTML = (gameState.myPlayer.board || []).map((u, i) => chessCardHTML(u, 'board', i)).join('') || '<div style="color:var(--text2);font-size:12px;padding:8px;">拖放棋子到这里 (最多6个)</div>';
+  benchEl.innerHTML = (gameState.myPlayer.bench || []).map((u, i) => chessCardHTML(u, 'bench', i)).join('') || '<div style="color:var(--text2);font-size:12px;padding:8px;">备用棋子</div>';
+}
+
+function chessCardHTML(unit, type, index) {
+  const stars = '⭐'.repeat(unit.star || 1);
+  return `<div class="chess-card ${unit.hp <= 0 ? 'eliminated-unit' : ''}" onclick="${type === 'board' ? `removeFromBoard(${index})` : `placeOnBoard(${index})`}">
+    <div class="c-name">${unit.name}</div>
+    <div class="c-stars">${stars}</div>
+    <div class="c-stats"><span class="c-hp">❤️${unit.hp}</span> <span class="c-atk">⚔️${unit.atk}</span></div>
+  </div>`;
+}
+
+function updateShopUI(shop) {
+  const el = document.getElementById('g-shop');
+  if (!shop || shop.length === 0) {
+    el.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:8px;">点击刷新按钮购买棋子</div>';
+    return;
+  }
+  el.innerHTML = shop.map((c, i) => `
+    <div class="shop-item" onclick="buyChess(${i})">
+      <div class="c-name">${c.name}</div>
+      <div class="c-cost">💰${c.cost}</div>
+      <div class="c-race">${c.race} · ${c.job}</div>
+      <div class="c-stats">❤️${c.hp} ⚔️${c.atk}</div>
+    </div>
+  `).join('');
+}
+
+function rollShop() {
+  if (isFighting) return;
+  ws.send(JSON.stringify({ type: 'roll_shop' }));
+}
+
+function buyChess(index) {
+  if (isFighting) return;
+  ws.send(JSON.stringify({ type: 'buy_chess', shopIndex: index }));
+}
+
+function placeOnBoard(index) {
+  ws.send(JSON.stringify({ type: 'place_board', benchIndex: index }));
+}
+
+function removeFromBoard(index) {
+  ws.send(JSON.stringify({ type: 'remove_board', boardIndex: index }));
+}
+
+function readyFight() {
+  if (isFighting) return;
+  ws.send(JSON.stringify({ type: 'ready_fight' }));
+}
+
+function showFightResults(msg) {
+  const logEl = document.getElementById('g-battle-log');
+  let html = `<div class="round-title">⚔️ 第 ${msg.round} 回合战斗</div>`;
+
+  (msg.results || []).forEach(r => {
+    const p1 = gameState.players.find(p => p.userId === r.playerA);
+    const p2 = gameState.players.find(p => p.userId === r.playerB);
+    if (p1) {
+      html += `<div class="log-entry">${r.winner === 'A' ? '✅' : '❌'} ${p1.username} ${r.winner === 'A' ? '击败' : '负于'} ${p2 ? p2.username : '幽灵'}</div>`;
+    }
+    (r.logs || []).forEach(log => {
+      html += `<div class="log-entry" style="padding-left:12px;">${log.actions ? log.actions.join(' | ') : ''}</div>`;
+    });
+  });
+
+  html += `<div class="log-entry" style="color:var(--gold);font-weight:600;">--- 回合结束 ---</div>`;
+  logEl.innerHTML = html + battleLogLines.slice(-10).join('');
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function showMatchEnd(msg) {
+  const overlay = document.getElementById('match-end');
+  overlay.classList.remove('hidden');
+  const myStanding = (msg.standings || []).find(p => p.userId === user.id);
+  const rank = myStanding ? myStanding.rank : '-';
+  document.getElementById('final-rank').textContent = `#${rank}`;
+  document.getElementById('final-detail').textContent = rank === 1 ? '🎉 恭喜夺冠！' : rank <= 3 ? '🏆 进入前三！' : '下次加油！';
+
+  const listEl = document.getElementById('final-standings');
+  listEl.innerHTML = (msg.standings || []).map(p =>
+    `<div style="padding:4px 0;font-size:14px;border-bottom:1px solid var(--border);">
+      <strong>#${p.rank}</strong> ${p.username} ${p.userId === user.id ? '⭐' : ''}
+    </div>`
+  ).join('');
+}
+
+function backToLobby() {
+  document.getElementById('match-end').classList.add('hidden');
+  showLobby();
+}
+
+// ====== TOAST ======
+function toast(msg) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>霓虹吃豆人 · Neon Pac-Man</title>
+<style>
+:root{--yellow:#ffe600;--blue:#00d4ff;--pink:#ff2d78}
+*{margin:0;padding:0;box-sizing:border-box;user-select:none;-webkit-tap-highlight-color:transparent}
+body{
+  background:radial-gradient(ellipse at center,#12122b 0%,#050510 100%);
+  min-height:100vh;display:flex;align-items:center;justify-content:center;
+  font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;color:#fff;
+  overflow:hidden;padding:16px;
+}
+.game-container{display:flex;flex-direction:column;align-items:center;gap:14px}
+.title{
+  font-size:2.2rem;font-weight:900;letter-spacing:8px;
+  background:linear-gradient(90deg,var(--yellow),#ffaa00,var(--yellow));
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:glow 2s ease-in-out infinite;
+}
+@keyframes glow{0%,100%{filter:brightness(1) drop-shadow(0 0 8px rgba(255,230,0,.4))}50%{filter:brightness(1.3) drop-shadow(0 0 20px rgba(255,230,0,.7))}}
+.hud{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+.hud-item{
+  background:rgba(255,255,255,.05);border:1px solid rgba(0,212,255,.25);
+  border-radius:10px;padding:8px 16px;text-align:center;min-width:86px;
+  backdrop-filter:blur(6px);
+}
+.hud-label{font-size:.68rem;color:var(--blue);letter-spacing:2px;margin-bottom:2px}
+.hud-value{font-size:1.2rem;font-weight:800}
+.canvas-wrap{
+  position:relative;border-radius:14px;padding:6px;
+  background:linear-gradient(135deg,rgba(0,212,255,.35),rgba(255,45,120,.35));
+  box-shadow:0 0 40px rgba(0,212,255,.2),0 0 80px rgba(255,45,120,.1);
+}
+canvas{display:block;border-radius:10px;background:#050510;max-width:92vw;height:auto}
+.overlay{
+  position:absolute;inset:6px;border-radius:10px;z-index:5;
+  background:rgba(5,5,16,.85);backdrop-filter:blur(5px);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  transition:opacity .3s;
+}
+.overlay.hidden{opacity:0;pointer-events:none}
+.ov-title{font-size:1.7rem;font-weight:900;letter-spacing:3px;color:var(--yellow)}
+.ov-sub{color:#99a;font-size:.92rem;text-align:center;line-height:1.6}
+.btn{
+  margin-top:4px;padding:12px 36px;font-size:1rem;font-weight:800;letter-spacing:2px;
+  color:#050510;background:linear-gradient(90deg,var(--yellow),#ffaa00);
+  border:none;border-radius:30px;cursor:pointer;
+  box-shadow:0 0 20px rgba(255,230,0,.45);transition:transform .15s,box-shadow .15s;
+}
+.btn:hover{transform:scale(1.07);box-shadow:0 0 32px rgba(255,230,0,.75)}
+.controls{display:flex;gap:20px;color:#778;font-size:.78rem;flex-wrap:wrap;justify-content:center}
+.key{display:inline-block;padding:2px 8px;border:1px solid #445;border-radius:5px;background:rgba(255,255,255,.06);color:var(--blue);font-weight:700;margin:0 2px}
+</style>
+</head>
+<body>
+<div class="game-container">
+  <div class="title">PAC-MAN</div>
+  <div class="hud">
+    <div class="hud-item"><div class="hud-label">得分</div><div class="hud-value" id="score">0</div></div>
+    <div class="hud-item"><div class="hud-label">最高分</div><div class="hud-value" id="high">0</div></div>
+    <div class="hud-item"><div class="hud-label">关卡</div><div class="hud-value" id="level">1</div></div>
+    <div class="hud-item"><div class="hud-label">生命</div><div class="hud-value" id="lives">🟡🟡🟡</div></div>
+  </div>
+  <div class="canvas-wrap">
+    <canvas id="game"></canvas>
+    <div class="overlay" id="overlay">
+      <div class="ov-title" id="ovTitle">准备开始</div>
+      <div class="ov-sub" id="ovSub">吃掉所有豆子，躲避幽灵！<br>吃到能量豆可以反击幽灵</div>
+      <button class="btn" id="startBtn">开始游戏</button>
+      <div class="ov-sub">或按 <span class="key">空格</span> 开始</div>
+    </div>
+  </div>
+  <div class="controls">
+    <span><span class="key">↑↓←→</span>或<span class="key">WASD</span>移动</span>
+    <span><span class="key">空格</span>暂停 / 继续</span>
+    <span>📱 支持触屏滑动</span>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ================= 常量与地图 ================= */
+const TILE = 24;
+const MAP = [
+  "###################",
+  "#........#........#",
+  "#o##.###.#.###.##o#",
+  "#.................#",
+  "#.##.#.#####.#.##.#",
+  "#....#...#...#....#",
+  "####.###.#.###.####",
+  "####.#.......#.####",
+  "####.#.##.##.#.####",
+  "#......#GGG#......#",
+  "####.#.#####.#.####",
+  "####.#.......#.####",
+  "####.#.#####.#.####",
+  "#........#........#",
+  "#.##.###.#.###.##.#",
+  "#o.#.....P.....#.o#",
+  "##.#.#.#####.#.#.##",
+  "#....#...#...#....#",
+  "#.######.#.######.#",
+  "#.................#",
+  "###################"
+];
+const COLS = MAP[0].length, ROWS = MAP.length;
+const W = COLS*TILE, H = ROWS*TILE;
+const DIRS = {up:{x:0,y:-1},down:{x:0,y:1},left:{x:-1,y:0},right:{x:1,y:0}};
+const DIR_LIST = Object.values(DIRS);
+
+/* ================= 画布 ================= */
+const canvas = document.getElementById('game');
+canvas.width = W; canvas.height = H;
+const ctx = canvas.getContext('2d');
+const wallCanvas = document.createElement('canvas');
+wallCanvas.width = W; wallCanvas.height = H;
+const wctx = wallCanvas.getContext('2d');
+
+/* ================= 音效引擎（Web Audio 合成） ================= */
+const Sound = {
+  ctx:null,
+  init(){ if(!this.ctx) this.ctx = new (window.AudioContext||window.webkitAudioContext)(); },
+  beep(f,d,type='square',v=.07,delay=0){
+    if(!this.ctx) return;
+    const t=this.ctx.currentTime+delay, o=this.ctx.createOscillator(), g=this.ctx.createGain();
+    o.type=type; o.frequency.setValueAtTime(f,t);
+    g.gain.setValueAtTime(v,t); g.gain.exponentialRampToValueAtTime(.001,t+d);
+    o.connect(g); g.connect(this.ctx.destination); o.start(t); o.stop(t+d);
+  },
+  wakka(){ this.beep(520,.06,'square',.05); this.beep(320,.06,'square',.04,.05); },
+  power(){ for(let i=0;i<5;i++) this.beep(160+i*70,.1,'sawtooth',.06,i*.06); },
+  eatGhost(){ for(let i=0;i<6;i++) this.beep(220+i*130,.07,'square',.07,i*.045); },
+  death(){ for(let i=0;i<11;i++) this.beep(620-i*55,.11,'sawtooth',.06,i*.085); },
+  start(){ [523,659,784,1047].forEach((f,i)=>this.beep(f,.14,'square',.07,i*.11)); },
+  clear(){ [523,659,784,1047,1319].forEach((f,i)=>this.beep(f,.13,'triangle',.08,i*.09)); }
+};
+
+/* ================= 地图数据 ================= */
+let grid, totalDots, pacStart;
+const GHOST_HOME = {c:9, r:9};
+function parseMap(){
+  grid=[]; totalDots=0;
+  for(let r=0;r<ROWS;r++){
+    grid[r]=[];
+    for(let c=0;c<COLS;c++){
+      const ch=MAP[r][c];
+      if(ch==='#') grid[r][c]=0;
+      else if(ch==='.'){ grid[r][c]=1; totalDots++; }
+      else if(ch==='o'){ grid[r][c]=2; totalDots++; }
+      else { grid[r][c]=3; if(ch==='P') pacStart={c,r}; }
+    }
+  }
+}
+function isWall(c,r){ return c<0||c>=COLS||r<0||r>=ROWS||grid[r][c]===0; }
+function isOpposite(a,b){ return a&&b&&a.x===-b.x&&a.y===-b.y; }
+
+/* ================= 粒子系统 ================= */
+let particles=[];
+function burst(x,y,color,n=12){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2, s=1+Math.random()*3.5;
+    particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,color,size:2+Math.random()*3});
+  }
+}
+function updateParticles(dt){
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.x+=p.vx; p.y+=p.vy; p.vx*=.95; p.vy*=.95; p.life-=dt*2.2;
+    if(p.life<=0) particles.splice(i,1);
+  }
+}
+function drawParticles(){
+  for(const p of particles){
+    ctx.globalAlpha=Math.max(0,p.life);
+    ctx.fillStyle=p.color;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.size*p.life,0,Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+
+/* ================= 实体基类 ================= */
+class Entity{
+  constructor(c,r,speed){
+    this.startC=c; this.startR=r; this.speed=speed;
+    this.reset();
+  }
+  reset(){
+    this.x=this.startC*TILE+TILE/2;
+    this.y=this.startR*TILE+TILE/2;
+    this.dir=null;
+  }
+  get col(){ return Math.floor(this.x/TILE); }
+  get row(){ return Math.floor(this.y/TILE); }
+  canMove(d){ return !isWall(this.col+d.x, this.row+d.y); }
+  update(dt){
+    const step=this.speed*dt;
+    const cx=this.col*TILE+TILE/2, cy=this.row*TILE+TILE/2;
+    // 接近格子中心时对齐并决策
+    if(Math.abs(this.x-cx)<step+.5 && Math.abs(this.y-cy)<step+.5){
+      this.x=cx; this.y=cy;
+      this.onTile();
+      if(this.dir && !this.canMove(this.dir)) this.dir=null;
+    }
+    if(this.dir){ this.x+=this.dir.x*step; this.y+=this.dir.y*step; }
+  }
+  onTile(){}
+}
+
+/* ================= 吃豆人 ================= */
+class Pacman extends Entity{
+  constructor(c,r,speed){
+    super(c,r,speed);
+    this.nextDir=null; this.mouth=0; this.mouthDir=1;
+  }
+  reset(){ super.reset(); this.nextDir=null; this.dir=DIRS.left; }
+  setDir(name){ this.nextDir=DIRS[name]; }
+  update(dt){
+    super.update(dt);
+    // 嘴巴动画
+    this.mouth += this.mouthDir*dt*6;
+    if(this.mouth>.28||this.mouth<0){ this.mouthDir*=-1; this.mouth=Math.max(0,Math.min(.28,this.mouth)); }
+  }
+  onTile(){
+    if(this.nextDir && this.canMove(this.nextDir)) this.dir=this.nextDir;
+    const c=this.col, r=this.row;
+    if(grid[r][c]===1){ grid[r][c]=3; game.onDot(c,r,false); }
+    else if(grid[r][c]===2){ grid[r][c]=3; game.onDot(c,r,true); }
+  }
+  draw(){
+    const r=TILE/2-2;
+    ctx.save(); ctx.translate(this.x,this.y);
+    ctx.rotate(this.dir?Math.atan2(this.dir.y,this.dir.x):0);
+    ctx.fillStyle='#ffe600'; ctx.shadowColor='#ffe600'; ctx.shadowBlur=14;
+    ctx.beginPath(); ctx.moveTo(0,0);
+    ctx.arc(0,0,r,this.mouth*Math.PI,(2-this.mouth)*Math.PI);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* ================= 幽灵 ================= */
+class Ghost extends Entity{
+  constructor(c,r,speed,color,personality){
+    super(c,r,speed);
+    this.color=color; this.personality=personality;
+    this.baseSpeed=speed; this.mode='normal'; this.home={...GHOST_HOME};
+  }
+  reset(){ super.reset(); this.mode='normal'; this.speed=this.baseSpeed; }
+  getTarget(){
+    const p=game.pacman, d=p.dir||DIRS.right;
+    switch(this.personality){
+      case 'blinky': return {c:p.col, r:p.row};
+      case 'pinky':  return {c:p.col+d.x*4, r:p.row+d.y*4};
+      case 'inky':   return {c:p.col+d.x*2, r:p.row+d.y*2};
+      case 'clyde':
+        return Math.hypot(this.col-p.col,this.row-p.row)>8
+          ? {c:p.col,r:p.row} : {c:1,r:ROWS-2};
+    }
+  }
+  onTile(){
+    if(this.mode==='eyes' && this.col===this.home.c && this.row===this.home.r)
+      this.mode='normal';
+    this.decideDir();
+  }
+  decideDir(){
+    const opts=DIR_LIST.filter(d=>this.canMove(d)&&!isOpposite(d,this.dir));
+    if(opts.length===0){ if(this.dir) this.dir={x:-this.dir.x,y:-this.dir.y}; return; }
+    if(this.mode==='frightened'){
+      this.dir=opts[Math.floor(Math.random()*opts.length)]; return;
+    }
+    const target=this.mode==='eyes'?this.home:this.getTarget();
+    let best=opts[0], bd=Infinity;
+    for(const d of opts){
+      const dist=(this.col+d.x-target.c)**2+(this.row+d.y-target.r)**2;
+      if(dist<bd){ bd=dist; best=d; }
+    }
+    this.dir=best;
+  }
+  update(dt){
+    this.speed = this.mode==='frightened' ? this.baseSpeed*.55
+               : this.mode==='eyes' ? this.baseSpeed*2.2
+               : this.baseSpeed;
+    super.update(dt);
+  }
+  draw(){
+    const r=TILE/2-2;
+    ctx.save(); ctx.translate(this.x,this.y);
+    if(this.mode!=='eyes'){
+      let col=this.color;
+      if(this.mode==='frightened')
+        col=(game.frightTimer<2 && Math.floor(performance.now()/180)%2===0)?'#fff':'#2b2bde';
+      ctx.fillStyle=col; ctx.shadowColor=col; ctx.shadowBlur=10;
+      ctx.beginPath();
+      ctx.arc(0,-1,r,Math.PI,0);
+      ctx.lineTo(r,r-3);
+      for(let i=0;i<3;i++){
+        ctx.quadraticCurveTo(r-(i*2+1)*r/3, r+2, r-(i*2+2)*r/3, r-3);
+      }
+      ctx.closePath(); ctx.fill(); ctx.shadowBlur=0;
+    }
+    // 眼睛
+    const ex=this.dir?this.dir.x*1.8:0, ey=this.dir?this.dir.y*1.8:0;
+    for(const s of [-1,1]){
+      if(this.mode==='frightened'){
+        ctx.fillStyle='#fff';
+        ctx.beginPath(); ctx.arc(s*4,-3,2,0,Math.PI*2); ctx.fill();
+      }else{
+        ctx.fillStyle='#fff';
+        ctx.beginPath(); ctx.ellipse(s*4,-3,3.4,4.4,0,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle='#2b2bde';
+        ctx.beginPath(); ctx.arc(s*4+ex,-3+ey,2,0,Math.PI*2); ctx.fill();
+      }
+    }
+    if(this.mode==='frightened'){
+      ctx.strokeStyle='#fff'; ctx.lineWidth=1.4; ctx.beginPath();
+      for(let i=0;i<5;i++){
+        const x=-6+i*3, y=4+(i%2?1.5:-1.5);
+        i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+/* ================= 游戏主类 ================= */
+class Game{
+  constructor(){
+    this.state='ready';
+    this.score=0; this.high=+(localStorage.getItem('pacHigh')||0);
+    this.level=1; this.lives=3;
+    this.dotsEaten=0; this.combo=0; this.frightTimer=0; this.dieTimer=0;
+    parseMap();
+    this.pacman=new Pacman(pacStart.c,pacStart.r,132);
+    this.ghosts=[
+      new Ghost(9,7,122,'#ff3b3b','blinky'),
+      new Ghost(9,9,122,'#ff9de2','pinky'),
+      new Ghost(8,9,122,'#00e5ff','inky'),
+      new Ghost(10,9,122,'#ffb84d','clyde'),
+    ];
+    renderWalls();
+    this.updateHUD();
+  }
+  /* ---- 状态控制 ---- */
+  start(){
+    Sound.init(); Sound.start();
+    this.state='playing'; hideOverlay();
+  }
+  pause(){ this.state='paused'; showOverlay('已暂停','休息一下','继续'); }
+  resume(){ this.state='playing'; hideOverlay(); }
+  restart(){
+    this.score=0; this.level=1; this.lives=3;
+    this.dotsEaten=0; this.combo=0; this.frightTimer=0;
+    parseMap(); renderWalls(); this.resetPositions();
+    this.updateHUD(); this.start();
+  }
+  resetPositions(){
+    this.pacman.reset();
+    this.pacman.speed=Math.min(132+this.level*7,200);
+    const gs=Math.min(122+this.level*7,190);
+    this.ghosts.forEach(g=>{ g.reset(); g.baseSpeed=gs; });
+  }
+  gameOver(){
+    this.state='gameover';
+    if(this.score>this.high){ this.high=this.score; localStorage.setItem('pacHigh',this.high); }
+    this.updateHUD();
+    showOverlay('游戏结束',`最终得分：${this.score}`,'重新开始');
+  }
+  levelClear(){
+    this.state='levelclear';
+    Sound.clear();
+    showOverlay('关卡完成！','准备进入下一关…','');
+    setTimeout(()=>{
+      this.level++;
+      parseMap(); renderWalls();
+      this.dotsEaten=0; this.combo=0; this.frightTimer=0;
+      this.resetPositions(); this.updateHUD();
+      this.state='playing'; hideOverlay();
+    },1800);
+  }
+  /* ---- 事件 ---- */
+  onDot(c,r,isPower){
+    this.dotsEaten++;
+    if(isPower){
+      this.score+=50; Sound.power();
+      this.frightTimer=Math.max(7-this.level*.5,3); this.combo=0;
+      for(const g of this.ghosts) if(g.mode==='normal') g.mode='frightened';
+      burst(c*TILE+12,r*TILE+12,'#ffe600',16);
+    }else{
+      this.score+=10; Sound.wakka();
+      burst(c*TILE+12,r*TILE+12,'#ffd9a0',4);
+    }
+    this.updateHUD();
+  }
+  eatGhost(g){
+    g.mode='eyes';
+    const pts=200*Math.pow(2,this.combo); this.combo++;
+    this.score+=pts; Sound.eatGhost();
+    burst(g.x,g.y,g.color,20);
+    this.updateHUD();
+  }
+  pacDie(){
+    this.state='dying'; this.dieTimer=1.4;
+    Sound.death();
+    burst(this.pacman.x,this.pacman.y,'#ffe600',30);
+  }
+  checkCollisions(){
+    for(const g of this.ghosts){
+      if(Math.hypot(g.x-this.pacman.x,g.y-this.pacman.y)<TILE*.65){
+        if(g.mode==='frightened') this.eatGhost(g);
+        else if(g.mode==='normal'){ this.pacDie(); break; }
+      }
+    }
+  }
+  /* ---- 主更新 ---- */
+  update(dt){
+    updateParticles(dt);
+    if(this.state==='dying'){
+      this.dieTimer-=dt;
+      if(this.dieTimer<=0){
+        this.lives--; this.updateHUD();
+        if(this.lives<=0) this.gameOver();
+        else { this.resetPositions(); this.state='playing'; }
+      }
+      return;
+    }
+    if(this.state!=='playing') return;
+    if(this.frightTimer>0){
+      this.frightTimer-=dt;
+      if(this.frightTimer<=0){
+        for(const g of this.ghosts) if(g.mode==='frightened') g.mode='normal';
+        this.combo=0;
+      }
+    }
+    this.pacman.update(dt);
+    for(const g of this.ghosts) g.update(dt);
+    this.checkCollisions();
+    if(this.dotsEaten>=totalDots) this.levelClear();
+  }
+  /* ---- 渲染 ---- */
+  render(){
+    ctx.clearRect(0,0,W,H);
+    ctx.drawImage(wallCanvas,0,0);
+    drawDots(performance.now());
+    drawParticles();
+    if(this.state!=='dying'||Math.floor(performance.now()/100)%2===0){
+      if(this.state!=='dying') this.pacman.draw();
+    }
+    for(const g of this.ghosts) g.draw();
+  }
+  updateHUD(){
+    document.getElementById('score').textContent=this.score;
+    document.getElementById('high').textContent=this.high;
+    document.getElementById('level').textContent=this.level;
+    document.getElementById('lives').textContent='🟡'.repeat(Math.max(0,this.lives))||'—';
+  }
+}
+
+/* ================= 墙壁预渲染 ================= */
+function renderWalls(){
+  wctx.clearRect(0,0,W,H);
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    if(grid[r][c]===0){
+      wctx.fillStyle='#0d1442';
+      wctx.fillRect(c*TILE,r*TILE,TILE,TILE);
+      wctx.strokeStyle='rgba(59,91,219,.85)';
+      wctx.lineWidth=2;
+      wctx.strokeRect(c*TILE+2,r*TILE+2,TILE-4,TILE-4);
+    }
+  }
+}
+function drawDots(t){
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    const x=c*TILE+12, y=r*TILE+12, v=grid[r][c];
+    if(v===1){
+      ctx.fillStyle='#ffd9a0';
+      ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill();
+    }else if(v===2){
+      const p=5+Math.sin(t/220)*1.8;
+      ctx.fillStyle='#ffe600'; ctx.shadowColor='#ffe600'; ctx.shadowBlur=14;
+      ctx.beginPath(); ctx.arc(x,y,p,0,Math.PI*2); ctx.fill();
+      ctx.shadowBlur=0;
+    }
+  }
+}
+
+/* ================= Overlay 控制 ================= */
+const overlay=document.getElementById('overlay'),
+      ovTitle=document.getElementById('ovTitle'),
+      ovSub=document.getElementById('ovSub'),
+      startBtn=document.getElementById('startBtn');
+function showOverlay(title,sub,btn){
+  ovTitle.textContent=title; ovSub.innerHTML=sub;
+  startBtn.textContent=btn; startBtn.style.display=btn?'block':'none';
+  overlay.classList.remove('hidden');
+}
+function hideOverlay(){ overlay.classList.add('hidden'); }
+startBtn.addEventListener('click',()=>{
+  if(game.state==='ready'||game.state==='gameover') game.restart?game.state==='gameover'?game.restart():game.start():game.start();
+  else if(game.state==='paused') game.resume();
+});
+
+/* ================= 输入处理（已修复空格键 Bug） ================= */
+const game=new Game();
+
+window.addEventListener('keydown',(e)=>{
+  // ① 阻止方向键/空格滚动页面
+  if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))
+    e.preventDefault();
+
+  // ② 空格/回车：最高优先级处理，不依赖任何游戏对象
+  if(e.code==='Space'||e.code==='Enter'){
+    switch(game.state){
+      case 'ready':    game.start();   break;
+      case 'playing':  game.pause();   break;
+      case 'paused':   game.resume();  break;
+      case 'gameover': game.restart(); break;
+    }
+    return;
+  }
+
+  // ③ 方向输入（含 WASD）
+  const map={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',
+             KeyW:'up',KeyS:'down',KeyA:'left',KeyD:'right'};
+  if(map[e.code]&&game.state==='playing') game.pacman.setDir(map[e.code]);
+});
+
+/* ---- 触屏滑动 ---- */
+let tx=0,ty=0;
+canvas.addEventListener('touchstart',e=>{ tx=e.touches[0].clientX; ty=e.touches[0].clientY; },{passive:true});
+canvas.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  const dx=e.touches[0].clientX-tx, dy=e.touches[0].clientY-ty;
+  if(Math.abs(dx)>18||Math.abs(dy)>18){
+    if(game.state==='playing')
+      game.pacman.setDir(Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'down':'up'));
+    tx=e.touches[0].clientX; ty=e.touches[0].clientY;
+  }
+},{passive:false});
+canvas.addEventListener('touchend',()=>{ if(game.state==='ready') game.start(); });
+
+/* ================= 主循环 ================= */
+let lastTime=performance.now();
+function loop(t){
+  const dt=Math.min((t-lastTime)/1000,.05);
+  lastTime=t;
+  game.update(dt);
+  game.render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
