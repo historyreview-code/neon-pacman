@@ -53,6 +53,30 @@ canvas{display:block;border-radius:10px;background:#050510;max-width:92vw;height
 .btn:hover{transform:scale(1.07);box-shadow:0 0 32px rgba(255,230,0,.75)}
 .controls{display:flex;gap:20px;color:#778;font-size:.78rem;flex-wrap:wrap;justify-content:center}
 .key{display:inline-block;padding:2px 8px;border:1px solid #445;border-radius:5px;background:rgba(255,255,255,.06);color:var(--blue);font-weight:700;margin:0 2px}
+/* ================= 触屏 D-Pad ================= */
+.dpad-overlay{display:none;position:absolute;bottom:10px;right:10px;z-index:8;width:130px;height:130px}
+@media(hover:none)and(pointer:coarse){.dpad-overlay{display:block}}
+.dpad-btn{
+  position:absolute;width:42px;height:42px;border-radius:50%;
+  background:rgba(0,212,255,.2);border:1.5px solid rgba(0,212,255,.5);
+  color:#fff;font-size:1.2rem;display:flex;align-items:center;justify-content:center;
+  backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
+  touch-action:none;cursor:pointer;transition:background .12s;
+}
+.dpad-btn:active,.dpad-btn.active{background:rgba(0,212,255,.55)}
+.dpad-up{top:0;left:44px}
+.dpad-down{bottom:0;left:44px}
+.dpad-left{top:44px;left:0}
+.dpad-right{top:44px;right:0}
+.pause-btn-mobile{
+  display:none;position:absolute;top:10px;right:10px;z-index:8;
+  width:36px;height:36px;border-radius:50%;
+  background:rgba(255,255,255,.1);border:1.5px solid rgba(255,255,255,.25);
+  color:#fff;font-size:.8rem;align-items:center;justify-content:center;
+  backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);touch-action:none;cursor:pointer;
+}
+@media(hover:none)and(pointer:coarse){.pause-btn-mobile{display:flex}}
+
 </style>
 </head>
 <body>
@@ -72,13 +96,20 @@ canvas{display:block;border-radius:10px;background:#050510;max-width:92vw;height
       <button class="btn" id="startBtn">开始游戏</button>
       <div class="ov-sub">或按 <span class="key">空格</span> 开始</div>
     </div>
-  </div>
+    <div class="dpad-overlay" id="dpad">
+    <button class="dpad-btn dpad-up"    data-dir="up">▲</button>
+    <button class="dpad-btn dpad-down"  data-dir="down">▼</button>
+    <button class="dpad-btn dpad-left"  data-dir="left">◀</button>
+    <button class="dpad-btn dpad-right" data-dir="right">▶</button>
+    </div>
+    <button class="pause-btn-mobile" id="pauseBtnMobile">⏸</button>
+    </div>
   <div class="controls">
     <span><span class="key">↑↓←→</span>或<span class="key">WASD</span>移动</span>
     <span><span class="key">空格</span>暂停 / 继续</span>
-    <span>📱 支持触屏滑动</span>
+    <span>📱 触屏滑动 / 虚拟方向键</span>
   </div>
-</div>
+    </div>
 
 <script>
 'use strict';
@@ -596,20 +627,64 @@ window.addEventListener('keydown',(e)=>{
   if(map[e.code]&&game.state==='playing') game.pacman.setDir(map[e.code]);
 });
 
-/* ---- 触屏滑动 ---- */
-let tx=0,ty=0;
-canvas.addEventListener('touchstart',e=>{ tx=e.touches[0].clientX; ty=e.touches[0].clientY; },{passive:true});
+
+/* ================= 触屏输入（全新） ================= */
+let tx=0, ty=0, touchFired=false;
+
+/* ---- 滑动操控（一次触摸只发射一次方向） ---- */
+canvas.addEventListener('touchstart',e=>{
+  const t=e.changedTouches[0];
+  tx=t.clientX; ty=t.clientY; touchFired=false;
+},{passive:true});
+
 canvas.addEventListener('touchmove',e=>{
   e.preventDefault();
-  const dx=e.touches[0].clientX-tx, dy=e.touches[0].clientY-ty;
-  if(Math.abs(dx)>18||Math.abs(dy)>18){
-    if(game.state==='playing')
-      game.pacman.setDir(Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'down':'up'));
-    tx=e.touches[0].clientX; ty=e.touches[0].clientY;
+  if(touchFired) return;
+  const t=e.changedTouches[0];
+  const dx=t.clientX-tx, dy=t.clientY-ty;
+  if(Math.abs(dx)>20 || Math.abs(dy)>20){
+    touchFired=true;
+    const d=Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'down':'up');
+    if(game.state==='playing') game.pacman.setDir(d);
   }
 },{passive:false});
-canvas.addEventListener('touchend',()=>{ if(game.state==='ready') game.start(); });
 
+canvas.addEventListener('touchend',()=>{
+  touchFired=false;
+  if(game.state==='ready'||game.state==='gameover') game.start();
+});
+
+/* ---- D-Pad 虚拟方向键 ---- */
+(function(){
+  const pad=document.getElementById('dpad');
+  pad.addEventListener('pointerdown',e=>{
+    const btn=e.target.closest('[data-dir]');
+    if(!btn) return; e.preventDefault();
+    const dir=btn.dataset.dir;
+    btn.classList.add('active');
+    if(game.state==='playing') game.pacman.setDir(dir);
+    else if(game.state==='gameover') game.restart();
+    else if(game.state==='ready') game.start();
+  });
+  pad.addEventListener('pointerup',e=>{
+    const btn=e.target.closest('[data-dir]');
+    if(btn) btn.classList.remove('active');
+  });
+  pad.addEventListener('pointerleave',()=>{
+    document.querySelectorAll('.dpad-btn.active').forEach(b=>b.classList.remove('active'));
+  });
+})();
+
+/* ---- 暂停按钮 ---- */
+document.getElementById('pauseBtnMobile').addEventListener('click',()=>{
+  if(game.state==='playing'){
+    game.pause();
+    document.getElementById('pauseBtnMobile').textContent='▶';
+  }else if(game.state==='paused'){
+    game.resume();
+    document.getElementById('pauseBtnMobile').textContent='⏸';
+  }
+});
 /* ================= 主循环 ================= */
 let lastTime=performance.now();
 function loop(t){
