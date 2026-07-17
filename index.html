@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>霓虹吃豆人 · Neon Pac-Man</title>
+<title>霓虹吃豆人 · 精准操控版</title>
 <style>
 :root{--yellow:#ffe600;--blue:#00d4ff;--pink:#ff2d78}
 *{margin:0;padding:0;box-sizing:border-box;user-select:none;-webkit-tap-highlight-color:transparent}
@@ -85,6 +85,8 @@ canvas{display:block;border-radius:10px;background:#050510;max-width:92vw;height
 
 /* ================= 常量与地图 ================= */
 const TILE = 24;
+/* ★ 修改1：转弯窗口扩大到半格，整条通道都在窗口覆盖内 */
+const TURN_WINDOW = TILE * 0.5;
 const MAP = [
   "###################",
   "#........#........#",
@@ -121,7 +123,7 @@ const wallCanvas = document.createElement('canvas');
 wallCanvas.width = W; wallCanvas.height = H;
 const wctx = wallCanvas.getContext('2d');
 
-/* ================= 音效引擎（Web Audio 合成） ================= */
+/* ================= 音效引擎 ================= */
 const Sound = {
   ctx:null,
   init(){ if(!this.ctx) this.ctx = new (window.AudioContext||window.webkitAudioContext)(); },
@@ -196,17 +198,38 @@ class Entity{
   }
   get col(){ return Math.floor(this.x/TILE); }
   get row(){ return Math.floor(this.y/TILE); }
-  canMove(d){ return !isWall(this.col+d.x, this.row+d.y); }
+  canMove(d){ return d && !isWall(this.col+d.x, this.row+d.y); }
+
   update(dt){
-    const step=this.speed*dt;
-    const cx=this.col*TILE+TILE/2, cy=this.row*TILE+TILE/2;
-    // 接近格子中心时对齐并决策
-    if(Math.abs(this.x-cx)<step+.5 && Math.abs(this.y-cy)<step+.5){
+    const step = this.speed*dt;
+
+    if(!this.dir){
+      this.onTile();
+      if(!this.dir) return;
+    }
+
+    const cx = this.col*TILE+TILE/2;
+    const cy = this.row*TILE+TILE/2;
+
+    let dist;
+    if(this.dir.x>0)      dist = cx - this.x;
+    else if(this.dir.x<0) dist = this.x - cx;
+    else if(this.dir.y>0) dist = cy - this.y;
+    else                  dist = this.y - cy;
+
+    if(dist>=0 && dist<=step){
       this.x=cx; this.y=cy;
       this.onTile();
       if(this.dir && !this.canMove(this.dir)) this.dir=null;
+      const remain = step-dist;
+      if(this.dir && remain>0){
+        this.x += this.dir.x*remain;
+        this.y += this.dir.y*remain;
+      }
+    }else{
+      this.x += this.dir.x*step;
+      this.y += this.dir.y*step;
     }
-    if(this.dir){ this.x+=this.dir.x*step; this.y+=this.dir.y*step; }
   }
   onTile(){}
 }
@@ -218,19 +241,69 @@ class Pacman extends Entity{
     this.nextDir=null; this.mouth=0; this.mouthDir=1;
   }
   reset(){ super.reset(); this.nextDir=null; this.dir=DIRS.left; }
-  setDir(name){ this.nextDir=DIRS[name]; }
-  update(dt){
-    super.update(dt);
-    // 嘴巴动画
-    this.mouth += this.mouthDir*dt*6;
-    if(this.mouth>.28||this.mouth<0){ this.mouthDir*=-1; this.mouth=Math.max(0,Math.min(.28,this.mouth)); }
+
+  setDir(name){
+    const d=DIRS[name];
+    if(!d) return;
+
+    /* ① 静止中：直接起步 ★ 并清除残留预输入，防止起步后意外转弯 */
+    if(!this.dir){
+      if(this.canMove(d)){
+        this.dir=d;
+        this.nextDir=null;
+      }
+      return;
+    }
+    /* ② 反向：立即 180° 掉头 */
+    if(d.x===-this.dir.x && d.y===-this.dir.y){
+      this.dir=d; this.nextDir=null;
+      return;
+    }
+    /* ③ 同向：★ 取消预输入（玩家反悔想直行），而非忽略 */
+    if(d.x===this.dir.x && d.y===this.dir.y){
+      this.nextDir=null;
+      return;
+    }
+    /* ④ 垂直方向：转弯窗口内 → 立即吸附转弯 */
+    if(this.tryTurn(d)) return;
+    /* ⑤ 窗口外：存为预输入 */
+    this.nextDir=d;
   }
-  onTile(){
-    if(this.nextDir && this.canMove(this.nextDir)) this.dir=this.nextDir;
+
+  tryTurn(d){
+    const cx=this.col*TILE+TILE/2;
+    const cy=this.row*TILE+TILE/2;
+    if(Math.abs(this.x-cx)>TURN_WINDOW || Math.abs(this.y-cy)>TURN_WINDOW) return false;
+    if(!this.canMove(d)) return false;
+    this.x=cx; this.y=cy;
+    this.eatAtTile();
+    this.dir=d;
+    this.nextDir=null;
+    return true;
+  }
+
+  eatAtTile(){
     const c=this.col, r=this.row;
     if(grid[r][c]===1){ grid[r][c]=3; game.onDot(c,r,false); }
     else if(grid[r][c]===2){ grid[r][c]=3; game.onDot(c,r,true); }
   }
+
+  onTile(){
+    /* ★ 修改2：预输入【成功才清除，失败保留】
+       途经墙格子不再误清，等到真正的路口自动转弯（经典手感） */
+    if(this.nextDir && this.canMove(this.nextDir)){
+      this.dir=this.nextDir;
+      this.nextDir=null;
+    }
+    this.eatAtTile();
+  }
+
+  update(dt){
+    super.update(dt);
+    this.mouth += this.mouthDir*dt*6;
+    if(this.mouth>.28||this.mouth<0){ this.mouthDir*=-1; this.mouth=Math.max(0,Math.min(.28,this.mouth)); }
+  }
+
   draw(){
     const r=TILE/2-2;
     ctx.save(); ctx.translate(this.x,this.y);
@@ -298,12 +371,10 @@ class Ghost extends Entity{
       ctx.beginPath();
       ctx.arc(0,-1,r,Math.PI,0);
       ctx.lineTo(r,r-3);
-      for(let i=0;i<3;i++){
+      for(let i=0;i<3;i++)
         ctx.quadraticCurveTo(r-(i*2+1)*r/3, r+2, r-(i*2+2)*r/3, r-3);
-      }
       ctx.closePath(); ctx.fill(); ctx.shadowBlur=0;
     }
-    // 眼睛
     const ex=this.dir?this.dir.x*1.8:0, ey=this.dir?this.dir.y*1.8:0;
     for(const s of [-1,1]){
       if(this.mode==='frightened'){
@@ -336,21 +407,17 @@ class Game{
     this.level=1; this.lives=3;
     this.dotsEaten=0; this.combo=0; this.frightTimer=0; this.dieTimer=0;
     parseMap();
-    this.pacman=new Pacman(pacStart.c,pacStart.r,132);
+    this.pacman=new Pacman(pacStart.c,pacStart.r,120);
     this.ghosts=[
-      new Ghost(9,7,122,'#ff3b3b','blinky'),
-      new Ghost(9,9,122,'#ff9de2','pinky'),
-      new Ghost(8,9,122,'#00e5ff','inky'),
-      new Ghost(10,9,122,'#ffb84d','clyde'),
+      new Ghost(9,7,112,'#ff3b3b','blinky'),
+      new Ghost(9,9,112,'#ff9de2','pinky'),
+      new Ghost(8,9,112,'#00e5ff','inky'),
+      new Ghost(10,9,112,'#ffb84d','clyde'),
     ];
     renderWalls();
     this.updateHUD();
   }
-  /* ---- 状态控制 ---- */
-  start(){
-    Sound.init(); Sound.start();
-    this.state='playing'; hideOverlay();
-  }
+  start(){ Sound.init(); Sound.start(); this.state='playing'; hideOverlay(); }
   pause(){ this.state='paused'; showOverlay('已暂停','休息一下','继续'); }
   resume(){ this.state='playing'; hideOverlay(); }
   restart(){
@@ -361,8 +428,8 @@ class Game{
   }
   resetPositions(){
     this.pacman.reset();
-    this.pacman.speed=Math.min(132+this.level*7,200);
-    const gs=Math.min(122+this.level*7,190);
+    this.pacman.speed=Math.min(120+this.level*6,180);
+    const gs=Math.min(112+this.level*6,170);
     this.ghosts.forEach(g=>{ g.reset(); g.baseSpeed=gs; });
   }
   gameOver(){
@@ -383,13 +450,17 @@ class Game{
       this.state='playing'; hideOverlay();
     },1800);
   }
-  /* ---- 事件 ---- */
   onDot(c,r,isPower){
     this.dotsEaten++;
     if(isPower){
       this.score+=50; Sound.power();
       this.frightTimer=Math.max(7-this.level*.5,3); this.combo=0;
-      for(const g of this.ghosts) if(g.mode==='normal') g.mode='frightened';
+      for(const g of this.ghosts){
+        if(g.mode==='normal'){
+          g.mode='frightened';
+          if(g.dir) g.dir={x:-g.dir.x,y:-g.dir.y};
+        }
+      }
       burst(c*TILE+12,r*TILE+12,'#ffe600',16);
     }else{
       this.score+=10; Sound.wakka();
@@ -417,7 +488,6 @@ class Game{
       }
     }
   }
-  /* ---- 主更新 ---- */
   update(dt){
     updateParticles(dt);
     if(this.state==='dying'){
@@ -442,15 +512,12 @@ class Game{
     this.checkCollisions();
     if(this.dotsEaten>=totalDots) this.levelClear();
   }
-  /* ---- 渲染 ---- */
   render(){
     ctx.clearRect(0,0,W,H);
     ctx.drawImage(wallCanvas,0,0);
     drawDots(performance.now());
     drawParticles();
-    if(this.state!=='dying'||Math.floor(performance.now()/100)%2===0){
-      if(this.state!=='dying') this.pacman.draw();
-    }
+    if(this.state!=='dying') this.pacman.draw();
     for(const g of this.ghosts) g.draw();
   }
   updateHUD(){
@@ -461,7 +528,7 @@ class Game{
   }
 }
 
-/* ================= 墙壁预渲染 ================= */
+/* ================= 渲染 ================= */
 function renderWalls(){
   wctx.clearRect(0,0,W,H);
   for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
@@ -489,7 +556,7 @@ function drawDots(t){
   }
 }
 
-/* ================= Overlay 控制 ================= */
+/* ================= Overlay ================= */
 const overlay=document.getElementById('overlay'),
       ovTitle=document.getElementById('ovTitle'),
       ovSub=document.getElementById('ovSub'),
@@ -500,20 +567,20 @@ function showOverlay(title,sub,btn){
   overlay.classList.remove('hidden');
 }
 function hideOverlay(){ overlay.classList.add('hidden'); }
+
+const game=new Game();
+
 startBtn.addEventListener('click',()=>{
-  if(game.state==='ready'||game.state==='gameover') game.restart?game.state==='gameover'?game.restart():game.start():game.start();
+  if(game.state==='gameover') game.restart();
+  else if(game.state==='ready') game.start();
   else if(game.state==='paused') game.resume();
 });
 
-/* ================= 输入处理（已修复空格键 Bug） ================= */
-const game=new Game();
-
+/* ================= 输入处理 ================= */
 window.addEventListener('keydown',(e)=>{
-  // ① 阻止方向键/空格滚动页面
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))
     e.preventDefault();
 
-  // ② 空格/回车：最高优先级处理，不依赖任何游戏对象
   if(e.code==='Space'||e.code==='Enter'){
     switch(game.state){
       case 'ready':    game.start();   break;
@@ -524,7 +591,6 @@ window.addEventListener('keydown',(e)=>{
     return;
   }
 
-  // ③ 方向输入（含 WASD）
   const map={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',
              KeyW:'up',KeyS:'down',KeyA:'left',KeyD:'right'};
   if(map[e.code]&&game.state==='playing') game.pacman.setDir(map[e.code]);
